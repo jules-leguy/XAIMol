@@ -2,7 +2,7 @@ from evomol import run_model
 from evomol.evaluation import EvaluationStrategyComposant
 from sklearn.base import ClassifierMixin
 
-from .classifier import SKLearnBlackBoxClassifier, CustomBlackBoxClassifier
+from .classifier import SKLearnBlackBoxClassifier, CustomBlackBoxClassifier, EvoMolEvaluationStrategyClassifier
 from .objective import ECFP4TanimotoSimilarity, FlipClassObjective
 
 
@@ -73,10 +73,11 @@ def _get_optimization_parameters_evomol(optimization_parameters):
 def generate_black_box_function(function, decision_frontier=0.5, flip_frontier=False, descriptor=None):
     """
     Returning a XAIMol.classifier.BlackBoxClassifier instance based on the given function.
-    The given function can be either a [0, 1] function or a Scikit-Learn classifier instance.
+    The given function can be either a [0, 1] function, a Scikit-Learn classifier instance or an EvoMol evaluation
+    strategy instance.
     The returned object can be readily used as input of XAIMol.generate_counterfactuals
-    :param function: classification function. Can be either a python function evaluating a single molecule or a
-    Scikit-Learn classifier instance.
+    :param function: classification function. Can be either a python function evaluating a single molecule, a
+    Scikit-Learn classifier instance or an evomol.evaluation.EvaluationStrategyComposant instance.
     :param decision_frontier: decision frontier. Any sample assessed by the black box function at a value
     that is greater or equal (except if flip_frontier is set to True) than this threshold is considered positive.
     :param flip_frontier: whether to flip the decision frontier. If set to True, then the samples that are
@@ -88,6 +89,8 @@ def generate_black_box_function(function, decision_frontier=0.5, flip_frontier=F
 
     if isinstance(function, ClassifierMixin):
         return SKLearnBlackBoxClassifier(function, decision_frontier,  flip_frontier, descriptor)
+    elif isinstance(function, EvaluationStrategyComposant):
+        return EvoMolEvaluationStrategyClassifier(function, decision_frontier, flip_frontier, descriptor)
     else:
         return CustomBlackBoxClassifier(function, decision_frontier, flip_frontier, descriptor)
 

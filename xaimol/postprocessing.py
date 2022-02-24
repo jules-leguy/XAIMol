@@ -42,8 +42,6 @@ def extract_counterfactuals_results(target_smiles, experiment_path, black_box_cl
     # Initialisation of data structures
     cf_smiles_list, cf_predicted_values, cf_sim_values = [], [], []
 
-    print(smiles_list_pop)
-
     # Iterating over all solutions
     for curr_sol_smi in smiles_list_pop:
 

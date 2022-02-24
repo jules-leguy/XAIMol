@@ -58,6 +58,6 @@ paths = []
 for smi in smiles_to_study[:5]:
     path = join(results_root, smi_to_filename(smi))
     paths.append(path)
-    # generate_counterfactuals(smi, black_box_classifier, path, entropy_key="entropy_ecfp4", entropy_weight=1)
+    generate_counterfactuals(smi, black_box_classifier, path, entropy_key="entropy_gen_scaffolds", entropy_weight=1)
 
 plot_counterfactuals(smiles_to_study[:5], paths, black_box_classifier, "test/04_results/fig.png", n_counterfactuals=5)

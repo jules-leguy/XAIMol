@@ -153,6 +153,7 @@ class SKLearnBlackBoxClassifier(BlackBoxClassifier):
 
     def __init__(self, classifier, decision_frontier=0.5, flip_frontier=False, descriptor=None):
         """
+        :param scikit learn classifier
         :param decision_frontier: decision frontier. Any sample assessed by the black box function at a value
         that is greater or equal (except if flip_frontier is set to True) than this threshold is considered positive.
         :param: flip_frontier : whether to flip the decision frontier. If set to True, then the samples that are
@@ -166,3 +167,25 @@ class SKLearnBlackBoxClassifier(BlackBoxClassifier):
     def _compute_proba_value(self, black_box_input):
         # Returning the probability of the positive (=second) class according to the classifier
         return self.classifier.predict_proba(black_box_input.reshape(1, -1))[0][1]
+
+
+class EvoMolEvaluationStrategyClassifier(BlackBoxClassifier):
+    """
+    Wrapping an evomol.evaluation.EvaluationStrategyComposant instance
+    """
+
+    def __init__(self, classifier, decision_frontier=0.5, flip_frontier=False, descriptor=None):
+        """
+        :param classifier: evomol.evaluation.EvaluationStrategyComposant instance
+        :param decision_frontier: decision frontier. Any sample assessed by the black box function at a value
+        that is greater or equal (except if flip_frontier is set to True) than this threshold is considered positive.
+        :param: flip_frontier : whether to flip the decision frontier. If set to True, then the samples that are
+        strictly lesser to the decision frontier will be considered positive.
+        :param descriptor : instance of chemdesc.descriptors.Descriptor that is used to convert SMILES into a descriptor
+        that is used as input of the black box classifier. If None, SMILES are given directly
+        """
+        super().__init__(decision_frontier, flip_frontier, descriptor)
+        self.classifier = classifier
+
+    def _compute_proba_value(self, black_box_input):
+        return self.classifier.eval_smi(black_box_input)

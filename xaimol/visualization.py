@@ -1,18 +1,15 @@
 import io
-from os.path import join
-
+import time
 import PIL
 import numpy as np
-from PIL import Image
-from matplotlib import pyplot as plt, pylab
-from rdkit.Chem import MolFromSmiles, MolFromSmarts, Draw
-from rdkit.Chem.Draw import MolsToGridImage, MolDrawing, DrawingOptions
+from PIL import Image as PILImage
+from rdkit.Chem import MolFromSmiles, MolFromSmarts
+from rdkit.Chem import rdFMCS as MCS
+from rdkit.Chem.Draw import MolsToGridImage
 from rdkit.Chem.Draw.SimilarityMaps import GetSimilarityMapFromWeights
 
 from xaimol import _get_distance_function
 from xaimol.postprocessing import extract_counterfactuals_results
-
-from rdkit.Chem import rdFMCS as MCS
 
 
 def _moldiff(template, query):
@@ -51,7 +48,7 @@ def _moldiff(template, query):
     raw_match = query.GetSubstructMatches(substructure)
     template_match = template.GetSubstructMatches(substructure)
 
-    if raw_match:
+    if raw_match and template_match:
         # flatten it
         match = list(raw_match[0])
         template_match = list(template_match[0])
@@ -81,7 +78,7 @@ def _moldiff(template, query):
 
 
 def plot_mol_counterfactuals_modification_map(target_smiles, counterfactuals_smiles, legend, size=(250, 250),
-                                              weights_threshold=0.):
+                                              weights_threshold=0., fontsize_legend=30):
     """
     Plotting a molecule and highlighting main differences with its counterfactual explanations.
 
@@ -90,6 +87,7 @@ def plot_mol_counterfactuals_modification_map(target_smiles, counterfactuals_smi
     :param legend text of the legend that will be written below the molecule
     :param size: size of the output image in pixels. Default : (250, 250)
     :param weights_threshold: weights value below this threshold are ignored
+    :param fontsize_legend: font size of the legend
     :return:
     """
 
@@ -111,8 +109,6 @@ def plot_mol_counterfactuals_modification_map(target_smiles, counterfactuals_smi
 
     # Normalization of the count into the weight vector
     weights = modified_atoms_count / modified_atoms_count.sum()
-    # weights = weights * target_mol.GetNumAtoms()
-    print(weights)
 
     weights[weights < weights_threshold] = 0
 
@@ -121,7 +117,8 @@ def plot_mol_counterfactuals_modification_map(target_smiles, counterfactuals_smi
                                       alpha=0, contourLines=0, step=0.01, coordScale=1)
 
     # Setting legend
-    fig.text(1 / 2, y=0.0, s=legend, fontsize=30, horizontalalignment="center", transform=fig.gca().transAxes)
+    fig.text(x=1 / 2, y=0.0, s=legend, fontsize=fontsize_legend, horizontalalignment="center",
+             transform=fig.gca().transAxes)
 
     return fig
 
@@ -162,7 +159,7 @@ def concatenate_images(img_list, horizontal_alignment=True):
 
     # Returning empty image if list is empty
     if len(img_list) == 0:
-        return Image.new('RGB', (0, 0))
+        return PILImage.new('RGB', (0, 0))
 
     # If list contains several images, concatenation of the first image with the following images (recursive call)
     else:
@@ -171,13 +168,13 @@ def concatenate_images(img_list, horizontal_alignment=True):
 
         # Horizontal concatenation
         if horizontal_alignment:
-            new_image = Image.new('RGB', (curr_img.width + following_img.width, curr_img.height))
+            new_image = PILImage.new('RGB', (curr_img.width + following_img.width, curr_img.height))
             new_image.paste(curr_img, (0, 0))
             new_image.paste(following_img, (curr_img.width, 0))
 
         # Vertical concatenation
         else:
-            new_image = Image.new('RGB', (curr_img.width, curr_img.height + following_img.height))
+            new_image = PILImage.new('RGB', (curr_img.width, curr_img.height + following_img.height))
             new_image.paste(curr_img, (0, 0))
             new_image.paste(following_img, (0, curr_img.height))
         return new_image
@@ -185,7 +182,7 @@ def concatenate_images(img_list, horizontal_alignment=True):
 
 def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifier, fig_save_path=None,
                          similarity_function="tanimoto_ecfp4", plot_subset=None, n_counterfactuals=3,
-                         mol_size=(200, 200)):
+                         mol_size=(200, 200), fontsize_legend_target=30):
     """
     Plotting the molecules to be explained along with their best scoring counterfactuals. Each row contains a target
     molecule along with its selected counterfactual explanations.
@@ -198,6 +195,7 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
     :param plot_subset: subset of experiments to be plotted (list of indices). If None, all experiments are plotted.
     :param n_counterfactuals: number of counterfactuals for each target.
     :param mol_size: (width, height) of each molecule in pixels
+    :param fontsize_legend_target: font size of the legend of the target molecule (first column)
     :return: image
     """
 
@@ -220,9 +218,10 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
             selected_solutions, _, _ = extract_counterfactuals_results(target_smiles, experiments_paths_list[i],
                                                                        black_box_classifier, similarity_function)
             selected_solutions = selected_solutions.tolist()
+            print(len(selected_solutions))
 
             # Iterating over all columns of current row
-            for j in range(n_counterfactuals + 1):
+            for j in range(n_counterfactuals):
 
                 # If CF solution exists
                 if j < len(selected_solutions):
@@ -250,9 +249,14 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
             target_mol_legend = target_mol_class + ", " + target_mol_prediction + ", " + target_mol_similarity
 
             # Computing legend for current target molecule
-            fig_target = plot_mol_counterfactuals_modification_map(target_smiles, selected_solutions, target_mol_legend,
+            tstart = time.time()
+            fig_target = plot_mol_counterfactuals_modification_map(target_smiles,
+                                                                   selected_solutions[:n_counterfactuals],
+                                                                   target_mol_legend,
                                                                    size=(mol_size[0], mol_size[1]),
+                                                                   fontsize_legend=fontsize_legend_target,
                                                                    weights_threshold=0)
+            print("time leftmost figure computation : " + str(time.time() - tstart) + " s")
 
             # Resizing the image based on its definition and the input size parameters
             DPI = fig_target.get_dpi()
@@ -266,7 +270,12 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
 
             # Resizing the image to match the requested size in pixels due to the fact maplotlib does not guarantee
             # the final size (tight_layout issue).
-            target_img = target_img.resize(mol_size, Image.ANTIALIAS)
+            target_img = target_img.resize(mol_size, PILImage.ANTIALIAS)
+
+            # Removing transparency
+            img_no_transparency = PILImage.new("RGBA", target_img.size, "WHITE")
+            img_no_transparency.paste(target_img.convert("RGBA"), mask=target_img.convert("RGBA"))
+            target_img = img_no_transparency
 
             # Saving the image for current molecule in the list
             fig_target_img_list.append(target_img)
@@ -277,13 +286,20 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
 
     # Computing figure that contains all counterfactual explanations
     cf_explanations_img = MolsToGridImage([MolFromSmiles(s) for s in fig_smiles_list], legends=legends,
-                                          molsPerRow=n_counterfactuals + 1, subImgSize=mol_size)
+                                          molsPerRow=n_counterfactuals, subImgSize=mol_size, maxMols=9999)
+
+    # Making sure the image is a PIL.Image even if launched from a notebook
+    if not isinstance(cf_explanations_img, PILImage.Image):
+        buf = io.BytesIO()
+        buf.write(cf_explanations_img.data)
+        buf.seek(0)
+        cf_explanations_img = PIL.Image.open(buf)
 
     # Vertical concatenation of all target images
     target_column_img = concatenate_images(fig_target_img_list, horizontal_alignment=False)
 
     # Concatenation of first column with the explanations
-    img = concatenate_images([target_column_img, cf_explanations_img])
+    img = concatenate_images([target_column_img, cf_explanations_img], horizontal_alignment=True)
 
     # Writing figure to disk if necessary
     if fig_save_path is not None:
