@@ -5,10 +5,10 @@ import numpy as np
 from PIL import Image as PILImage
 from rdkit.Chem import MolFromSmiles, MolFromSmarts
 from rdkit.Chem import rdFMCS as MCS
-from rdkit.Chem.Draw import MolsToGridImage
+from rdkit.Chem.Draw import MolsToGridImage, IPythonConsole
 from rdkit.Chem.Draw.SimilarityMaps import GetSimilarityMapFromWeights
 
-from xaimol import _get_distance_function
+from xaimol import get_distance_function
 from xaimol.postprocessing import extract_counterfactuals_results
 
 
@@ -180,8 +180,8 @@ def concatenate_images(img_list, horizontal_alignment=True):
         return new_image
 
 
-def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifier, fig_save_path=None,
-                         similarity_function="tanimoto_ecfp4", plot_subset=None, n_counterfactuals=3,
+def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifier, distance_functions,
+                         fig_save_path=None, plot_subset=None, n_counterfactuals=3, plot_modification_map=False,
                          mol_size=(200, 200), fontsize_legend_target=30):
     """
     Plotting the molecules to be explained along with their best scoring counterfactuals. Each row contains a target
@@ -190,10 +190,12 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
     :param experiments_paths_list: list of paths where each experiment is stored. Must match the length of smiles_list.
     :param black_box_classifier: xaimol.classifier.BlackBoxClassifier instance.
     :param fig_save_path: path where to save the PNG output. If None, the figure is not written on disk.
-    :param similarity_function: keyword or instance of EvaluationStrategyComposant that estimates the distance between
-    any point and the SMILES given in the constructor (default : "tanimoto_ecfp4").
+    :param distance_functions: list of distance functions for each target smiles (see xaimol.get_distance_function
+    function).
     :param plot_subset: subset of experiments to be plotted (list of indices). If None, all experiments are plotted.
     :param n_counterfactuals: number of counterfactuals for each target.
+    :param plot_modification_map: whether to plot the modification map in the leftmost molecule, i.e. a representation
+    of how much each atom is being altered in its displayed counterfactual explanations.
     :param mol_size: (width, height) of each molecule in pixels
     :param fontsize_legend_target: font size of the legend of the target molecule (first column)
     :return: image
@@ -211,16 +213,59 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
         # Checking that current experiment must be plotted
         if plot_subset is None or i in plot_subset:
 
-            # Computing distance function
-            dist_fun = _get_distance_function(similarity_function, target_smiles)
-
             # Extracting best solutions in similarity order
-            selected_solutions, _, _ = extract_counterfactuals_results(target_smiles, experiments_paths_list[i],
-                                                                       black_box_classifier, similarity_function)
-            selected_solutions = selected_solutions.tolist()
-            print(len(selected_solutions))
+            selected_solutions, selected_solutions_pred_values, selected_solutions_sim_values = \
+                extract_counterfactuals_results(target_smiles, experiments_paths_list[i], black_box_classifier,
+                                                distance_functions[i])
 
-            # Iterating over all columns of current row
+            # Computing legend attributes for current target molecule
+            target_mol_class = "+" if black_box_classifier.assess_class(target_smiles) == "positive" else "-"
+            target_mol_prediction = str("{:.2f}".format(black_box_classifier.assess_proba_value(target_smiles)))
+            target_mol_similarity = str("{:.2f}".format(distance_functions[i].eval_smi(target_smiles)))
+
+            # Computing legend for current target molecule
+            target_mol_legend = target_mol_class + ", " + target_mol_prediction + ", " + target_mol_similarity
+
+            tstart = time.time()
+            # Plot of the target molecule with the modification map (if relevant)
+            if plot_modification_map:
+                fig_target = plot_mol_counterfactuals_modification_map(target_smiles,
+                                                                       selected_solutions[:n_counterfactuals],
+                                                                       target_mol_legend,
+                                                                       size=(mol_size[0], mol_size[1]),
+                                                                       fontsize_legend=fontsize_legend_target,
+                                                                       weights_threshold=0)
+
+                # Resizing the image based on its definition and the input size parameters
+                DPI = fig_target.get_dpi()
+                fig_target.set_size_inches(mol_size[0] / float(DPI), mol_size[1] / float(DPI))
+
+                # Converting figure to PIL image
+                buf = io.BytesIO()
+                fig_target.savefig(buf, dpi='figure', bbox_inches='tight')
+                buf.seek(0)
+                target_img = PIL.Image.open(buf)
+
+                # Resizing the image to match the requested size in pixels due to the fact maplotlib does not guarantee
+                # the final size (tight_layout issue).
+                target_img = target_img.resize(mol_size, PILImage.ANTIALIAS)
+
+                # Removing transparency
+                img_no_transparency = PILImage.new("RGBA", target_img.size, "WHITE")
+                img_no_transparency.paste(target_img.convert("RGBA"), mask=target_img.convert("RGBA"))
+                target_img = img_no_transparency
+
+                # Saving the image for current molecule in the list
+                fig_target_img_list.append(target_img)
+
+            # Adding the target molecule in the lists so that it is plotted along with all counterfactual explanations
+            else:
+                fig_smiles_list.append(target_smiles)
+                fig_class_list.append(target_mol_class)
+                fig_class_prediction_list.append(target_mol_prediction)
+                fig_similarity_list.append(target_mol_similarity)
+
+            # Iterating over all columns of current row (over all explanations)
             for j in range(n_counterfactuals):
 
                 # If CF solution exists
@@ -232,8 +277,8 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
                     fig_smiles_list.append(curr_cf_smi)
                     fig_class_list.append("+" if black_box_classifier.assess_class(curr_cf_smi) == "positive" else "-")
                     fig_class_prediction_list.append(
-                        str("{:.2f}".format(black_box_classifier.assess_proba_value(curr_cf_smi))))
-                    fig_similarity_list.append(str("{:.2f}".format(dist_fun.eval_smi(curr_cf_smi))))
+                        str("{:.2f}".format(selected_solutions_pred_values[j])))
+                    fig_similarity_list.append(str("{:.2f}".format(selected_solutions_sim_values[j])))
 
                 else:
                     # Default values if no CF exists
@@ -242,69 +287,37 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
                     fig_class_prediction_list.append("")
                     fig_similarity_list.append("")
 
-            # Computing legend attributes for current target molecule
-            target_mol_class = "+" if black_box_classifier.assess_class(target_smiles) == "positive" else "-"
-            target_mol_prediction = str("{:.2f}".format(black_box_classifier.assess_proba_value(target_smiles)))
-            target_mol_similarity = str("{:.2f}".format(dist_fun.eval_smi(target_smiles)))
-            target_mol_legend = target_mol_class + ", " + target_mol_prediction + ", " + target_mol_similarity
-
-            # Computing legend for current target molecule
-            tstart = time.time()
-            fig_target = plot_mol_counterfactuals_modification_map(target_smiles,
-                                                                   selected_solutions[:n_counterfactuals],
-                                                                   target_mol_legend,
-                                                                   size=(mol_size[0], mol_size[1]),
-                                                                   fontsize_legend=fontsize_legend_target,
-                                                                   weights_threshold=0)
             print("time leftmost figure computation : " + str(time.time() - tstart) + " s")
-
-            # Resizing the image based on its definition and the input size parameters
-            DPI = fig_target.get_dpi()
-            fig_target.set_size_inches(mol_size[0] / float(DPI), mol_size[1] / float(DPI))
-
-            # Converting figure to PIL image
-            buf = io.BytesIO()
-            fig_target.savefig(buf, dpi='figure', bbox_inches='tight')
-            buf.seek(0)
-            target_img = PIL.Image.open(buf)
-
-            # Resizing the image to match the requested size in pixels due to the fact maplotlib does not guarantee
-            # the final size (tight_layout issue).
-            target_img = target_img.resize(mol_size, PILImage.ANTIALIAS)
-
-            # Removing transparency
-            img_no_transparency = PILImage.new("RGBA", target_img.size, "WHITE")
-            img_no_transparency.paste(target_img.convert("RGBA"), mask=target_img.convert("RGBA"))
-            target_img = img_no_transparency
-
-            # Saving the image for current molecule in the list
-            fig_target_img_list.append(target_img)
 
     # Computing list of legends for all explanations
     legends = [fig_class_list[i] + ", " + fig_class_prediction_list[i] + ", " + fig_similarity_list[i]
                for i in range(len(fig_smiles_list))]
 
     # Computing figure that contains all counterfactual explanations
-    cf_explanations_img = MolsToGridImage([MolFromSmiles(s) for s in fig_smiles_list], legends=legends,
+    grid_img = MolsToGridImage(mols=[MolFromSmiles(s) for s in fig_smiles_list], legends=legends,
                                           molsPerRow=n_counterfactuals, subImgSize=mol_size, maxMols=9999)
 
     # Making sure the image is a PIL.Image even if launched from a notebook
-    if not isinstance(cf_explanations_img, PILImage.Image):
+    if not isinstance(grid_img, PILImage.Image):
         buf = io.BytesIO()
-        buf.write(cf_explanations_img.data)
+        buf.write(grid_img.data)
         buf.seek(0)
-        cf_explanations_img = PIL.Image.open(buf)
+        grid_img = PIL.Image.open(buf)
 
-    # Vertical concatenation of all target images
-    target_column_img = concatenate_images(fig_target_img_list, horizontal_alignment=False)
+    # Concatenation of all images if they were computed separately
+    if len(fig_target_img_list) > 0:
+        # Vertical concatenation of all target images
+        target_column_img = concatenate_images(fig_target_img_list, horizontal_alignment=False)
 
-    # Concatenation of first column with the explanations
-    img = concatenate_images([target_column_img, cf_explanations_img], horizontal_alignment=True)
+        # Concatenation of first column with the explanations
+        final_img = concatenate_images([target_column_img, grid_img], horizontal_alignment=True)
+    else:
+        final_img = grid_img
 
     # Writing figure to disk if necessary
     if fig_save_path is not None:
         with open(fig_save_path, "wb") as f:
-            img.save(f, "png")
+            final_img.save(f, "png")
 
     # Returning output molecule
-    return img
+    return final_img

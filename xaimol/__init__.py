@@ -1,30 +1,35 @@
 from evomol import run_model
-from evomol.evaluation import EvaluationStrategyComposant
+from evomol.evaluation import EvaluationStrategyComposant, NPerturbationsEvaluationStrategy, \
+    OppositeWrapperEvaluationStrategy
 from sklearn.base import ClassifierMixin
 
 from .classifier import SKLearnBlackBoxClassifier, CustomBlackBoxClassifier, EvoMolEvaluationStrategyClassifier
 from .objective import ECFP4TanimotoSimilarity, FlipClassObjective
 
 
-def _get_distance_function(similarity_function, target_smiles):
+def get_distance_function(similarity_function, target_smiles):
     """
     Returning the EvoMol.evaluation.EvaluationStrategyComposant instance that evaluates the distance between any
-    molecule and the smiles given as parameter (target_smiles).
+    molecule and the smiles given as parameter (target_smiles). In the special case of using a distance as a penalty
+    of the number of mutations, the distance is calculated with respect to the first individual of the population.
     :param similarity_function: distance function to be used. Can be either "tanimoto_ecfp4" in order to use the
-    Tanimoto distance on ECFP4 fingerprints, or can be an EvoMol.evaluation.EvaluationStrategyComposant class that
-    takes as constructor argument the target SMILES.
+    Tanimoto distance on ECFP4 fingerprints, or can be "number_mutations_penalty" to compute a penalty that is based
+    on the number of previously performed mutations. It can finally also be an
+    EvoMol.evaluation.EvaluationStrategyComposant class that takes as constructor argument the target SMILES.
     :param target_smiles: SMILES to evaluate the distance of instances with
     :return:
     """
     if similarity_function == "tanimoto_ecfp4":
         return ECFP4TanimotoSimilarity(target_smiles)
+    if similarity_function == "number_mutations_penalty":
+        return OppositeWrapperEvaluationStrategy([NPerturbationsEvaluationStrategy()])
     elif issubclass(similarity_function, EvaluationStrategyComposant):
         return similarity_function(target_smiles)
     else:
         return None
 
 
-def _get_class_objective(black_box_function, target_smiles):
+def get_class_objective_function(black_box_function, target_smiles):
     """
     Returning the XAIMol.objective.FlipClassObjective instance that guides the search towards solutions of opposite
     class compared to target_smiles with respect to the given black box function
@@ -95,16 +100,16 @@ def generate_black_box_function(function, decision_frontier=0.5, flip_frontier=F
         return CustomBlackBoxClassifier(function, decision_frontier, flip_frontier, descriptor)
 
 
-def generate_counterfactuals(smiles, black_box_function, results_path, similarity_function="tanimoto_ecfp4",
-                             freeze_connectivity=False, action_space_parameters=None, optimization_parameters=None,
-                             entropy_key=None, entropy_weight=1):
+def generate_counterfactuals(objective_function, smiles, results_path, freeze_connectivity=False,
+                             action_space_parameters=None, optimization_parameters=None):
     """
-    Generating counterfactuals for the given black box function and SMILES with the given parameters
+    Generating counterfactuals for the given SMILES based on the given objective function
+    :param objective_function: objective function of the counterfactuals generation procedure, using the EvoMol
+    dictionary declaration syntax (https://github.com/jules-leguy/EvoMol). xaimol.get_distance_function and
+    xaimol.get_class_objective_function functions can be used to respectively define the distance function and the
+    function that guides the optimization towards solutions of the desired class.
     :param smiles: SMILES of the instance to be explained
-    :param black_box_function: instance of XAIMol.BlackBoxClassifier that represents the function to be explained
     :param results_path: path to the folder that will contain the optimization results
-    :param similarity_function: keyword or instance of EvaluationStrategyComposant that estimates the distance between
-    any point and the SMILES given in the constructor (default : "tanimoto_ecfp4").
     :param freeze_connectivity: whether the connectivity of the molecular graph of the smiles to be explained cannot be
     modified by the optimization (false)
     :param action_space_parameters: "action_space_parameters" attribute of the EvoMol optimization procedure. If None,
@@ -112,35 +117,9 @@ def generate_counterfactuals(smiles, black_box_function, results_path, similarit
     parameter
     :param optimization_parameters: "optimization_parameters" attribute of the EvoMol optimization procedure. If None,
     default EvoMol parameters are used except for the 'max_steps' attribute that is set to 100.
-    :param entropy_key: Whether to use entropy optimization in order to maximize the diversity of generated solutions
-    (see https://jcheminf.biomedcentral.com/articles/10.1186/s13321-021-00554-8). If None, no entropy term is used.
-    Possible values are entropy_ifg, entropy_checkmol, entropy_shg_1 and entropy_gen_scaffolds (see
-    https://github.com/jules-leguy/EvoMol).
-    :param entropy_weight: coefficient of the entropy term in the objective function of the form
-    entropy_weight * entropy_objective + mean(flip_class_objective, similarity_objective). Only assessed if entropy_key
     is not None.
     :return:
     """
-
-    # Computing objective function
-    objective_function = {
-        "type": "mean",
-        "functions": [
-            _get_distance_function(similarity_function, smiles),
-            _get_class_objective(black_box_function, smiles)
-        ]
-    }
-
-    # Adding entropy objective if required
-    if entropy_key is not None:
-        objective_function = {
-            "type": "linear_combination",
-            "coef": [entropy_weight, 1],
-            "functions": [
-                entropy_key,
-                objective_function
-            ]
-        }
 
     # Computing action_space_parameters dictionary
     action_space_parameters = _get_action_space_parameters_evomol(action_space_parameters, freeze_connectivity)

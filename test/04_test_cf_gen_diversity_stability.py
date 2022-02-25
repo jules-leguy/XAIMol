@@ -2,7 +2,7 @@ from os.path import join
 
 from evomol.evaluation_dft import smi_to_filename
 
-from xaimol import generate_black_box_function, generate_counterfactuals
+from xaimol import generate_black_box_function, generate_counterfactuals, get_distance_function
 from xaimol.classifier import BlackBoxClassifier
 
 import os
@@ -54,10 +54,13 @@ smiles_to_study = extract_smiles_to_study(test_set_data, black_box_classifier, '
 results_root = "test/04_results"
 
 paths = []
-
+distance_functions = []
 for smi in smiles_to_study[:5]:
     path = join(results_root, smi_to_filename(smi))
     paths.append(path)
-    generate_counterfactuals(smi, black_box_classifier, path, entropy_key="entropy_gen_scaffolds", entropy_weight=1)
+    dist_fun = get_distance_function("tanimoto_ecfp4", smi)
+    distance_functions.append(dist_fun)
+    # generate_counterfactuals(smi, black_box_classifier, path, entropy_key="entropy_gen_scaffolds", entropy_weight=1)
 
-plot_counterfactuals(smiles_to_study[:5], paths, black_box_classifier, "test/04_results/fig.png", n_counterfactuals=5)
+plot_counterfactuals(smiles_to_study[:5], paths, black_box_classifier, distance_functions=distance_functions,
+                     fig_save_path="test/04_results/fig.png", n_counterfactuals=5, plot_modification_map=True)

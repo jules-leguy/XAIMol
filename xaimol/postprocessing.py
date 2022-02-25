@@ -2,30 +2,23 @@ from os.path import join
 
 import numpy as np
 
-from xaimol import _get_distance_function
 from xaimol.classifier import flip_class_keyword
 import pandas as pd
 
 
-def extract_counterfactuals_results(target_smiles, experiment_path, black_box_classifier,
-                                    similarity_function="tanimoto_ecfp4"):
+def extract_counterfactuals_results(target_smiles, experiment_path, black_box_classifier, distance_function):
     """
     Returning the list of counterfactuals obtained by the given experiment. The results are sorted by decreasing
-    similarity. Also returning the similarity vector of same size as the number of returned solutions.
+    similarity. Also returning the similarity vector of same size as the number of returned solutions. If the distance
+    function is the same as the one used during optimization then its values are not re-computed.
 
     :param target_smiles: SMILES of the molecule for which counterfactuals explanations were searched
     :param experiment_path: path were the experiment results are stored
     :param black_box_classifier: xaimol.classifier.BlackBoxClassifier instance that corresponds to the black box
     function that is being explained.
-    :param similarity_function: keyword or instance of EvaluationStrategyComposant that estimates the distance between
-    any point and the SMILES given in the constructor (default : "tanimoto_ecfp4"). This function defines the measure
-    of distance between the target molecule and its counterfactual explanations. It can differ from the measure used
-    during the optimization procedure
+    :param distance_function: distance function (see xaimol.get_distance_function function).
     :return: list of smiles, list of black box classifier predicted values, list of similarity values
     """
-
-    # Computing distance function
-    dist_fun = _get_distance_function(similarity_function, target_smiles)
 
     # Computing the expected class of counterfactual explanations
     counterfactuals_class = flip_class_keyword(black_box_classifier.assess_class(target_smiles))
@@ -33,8 +26,14 @@ def extract_counterfactuals_results(target_smiles, experiment_path, black_box_cl
     # Reading EvoMol population
     df = pd.read_csv(join(experiment_path, "pop.csv"))
 
-    # Removing nan values in SMILES column if relevant (population not full)
-    df.dropna(subset=["smiles"], inplace=True)
+    # Checking if distance function differs from the one used during optimization
+    distance_function_differs = distance_function.keys()[0] not in df
+
+    # Removing nan values in columns where relevant (population not full)
+    if distance_function_differs:
+        df.dropna(subset=["smiles"], inplace=True)
+    else:
+        df.dropna(subset=["smiles", distance_function.keys()[0]], inplace=True)
 
     # Extracting SMILES list of resulting individuals in the population
     smiles_list_pop = df["smiles"].tolist()
@@ -43,7 +42,7 @@ def extract_counterfactuals_results(target_smiles, experiment_path, black_box_cl
     cf_smiles_list, cf_predicted_values, cf_sim_values = [], [], []
 
     # Iterating over all solutions
-    for curr_sol_smi in smiles_list_pop:
+    for i, curr_sol_smi in enumerate(smiles_list_pop):
 
         # Computing predicted class for current solution
         predicted_class = black_box_classifier.assess_class(curr_sol_smi)
@@ -54,8 +53,11 @@ def extract_counterfactuals_results(target_smiles, experiment_path, black_box_cl
             # Computing the exact predicted value
             predicted_value = black_box_classifier.assess_proba_value(curr_sol_smi)
 
-            # Computing the similarity value
-            sim_value = dist_fun.eval_smi(curr_sol_smi)
+            # Computing or extracting from data the similarity value
+            if distance_function_differs:
+                sim_value = distance_function.eval_smi(curr_sol_smi)
+            else:
+                sim_value = df[distance_function.keys()[0]][i]
 
             # Saving values to corresponding data structures
             cf_smiles_list.append(curr_sol_smi)
