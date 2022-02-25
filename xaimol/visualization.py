@@ -287,8 +287,6 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
                     fig_class_prediction_list.append("")
                     fig_similarity_list.append("")
 
-            print("time leftmost figure computation : " + str(time.time() - tstart) + " s")
-
     # Computing list of legends for all explanations
     legends = [fig_class_list[i] + ", " + fig_class_prediction_list[i] + ", " + fig_similarity_list[i]
                for i in range(len(fig_smiles_list))]
