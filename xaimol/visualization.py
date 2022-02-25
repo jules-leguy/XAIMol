@@ -291,9 +291,11 @@ def plot_counterfactuals(smiles_list, experiments_paths_list, black_box_classifi
     legends = [fig_class_list[i] + ", " + fig_class_prediction_list[i] + ", " + fig_similarity_list[i]
                for i in range(len(fig_smiles_list))]
 
-    # Computing figure that contains all counterfactual explanations
+    # Computing figure that contains all counterfactual explanations (or all molecules if plot_modification_map is
+    # False)
     grid_img = MolsToGridImage(mols=[MolFromSmiles(s) for s in fig_smiles_list], legends=legends,
-                                          molsPerRow=n_counterfactuals, subImgSize=mol_size, maxMols=9999)
+                               molsPerRow=n_counterfactuals if plot_modification_map else n_counterfactuals + 1,
+                               subImgSize=mol_size, maxMols=9999)
 
     # Making sure the image is a PIL.Image even if launched from a notebook
     if not isinstance(grid_img, PILImage.Image):
